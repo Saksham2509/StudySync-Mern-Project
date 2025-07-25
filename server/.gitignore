@@ -49,6 +49,9 @@ client/build/
 # System files
 .DS_Store
 Thumbs.db
+server/utils/clearDB.js
+
+
 
 # Optional: OS-specific
 *.bak
