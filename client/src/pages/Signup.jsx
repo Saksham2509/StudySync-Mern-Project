@@ -45,7 +45,8 @@ export default function Signup() {
       
       // Show success message and redirect to login
       showSuccess("Account created successfully! Please login.");
-      navigate("/login");
+      navigate("/dashboard");
+
     } catch (err) {
       console.error("Signup error:", err);
       setError(err.response?.data?.msg || "Failed to create account. Email may already be registered.");

@@ -12,13 +12,10 @@ module.exports = (io, socketRooms = {}) => {
   io.use((socket, next) => {
     const token = socket.handshake.auth && socket.handshake.auth.token;
     if (!token) {
-      // For development: allow connections without token with a default user
-      console.log('Warning: No auth token provided, using default user');
-      socket.user = { name: 'Anonymous User', id: socket.id, isAuthenticated: false };
-      return next();
+     return next(new Error("Authentication token missing"));
     }
     try {
-      const decoded = jwt.verify(token, process.env.JWT_SECRET || 'your-secret-key-for-development');
+      const decoded = jwt.verify(token, process.env.JWT_SECRET );
       // Store the user data in the socket.user object, ensuring we have proper user data
       socket.user = {
         id: decoded.user?.id || socket.id,
@@ -27,35 +24,31 @@ module.exports = (io, socketRooms = {}) => {
         isAuthenticated: true,
         _decoded: decoded // Keep the full decoded data for debugging
       };
-      console.log('Authenticated user:', socket.user.name, socket.user.id);
+    //  console.log('Authenticated user:', socket.user.name, socket.user.id);
       return next();
     } catch (err) {
-      console.error('Token verification error:', err.message);
-      // For development: allow connections with invalid token
-      socket.user = { name: 'Anonymous User', id: socket.id, isAuthenticated: false };
-      return next();
+      return next(new Error("Authentication failed: Invalid token"));
     }
   });
 
   // Utility function to log room status
-  const logRoomStatus = () => {
-    console.log("\n===== ROOM STATUS =====");
-    Object.keys(rooms).forEach(roomName => {
-      const room = rooms[roomName];
-      console.log(`Room: ${roomName}`);
-      console.log(`  Users: ${room.users.length}`);
-      console.log(`  Users list: ${room.users.map(u => `${u.name} (${u.id})`).join(', ')}`);
-      console.log(`  Host: ${room.host || 'None'}`);
-    });
-    console.log("=======================\n");
-  };
+  // const logRoomStatus = () => {
+  //   console.log("\n===== ROOM STATUS =====");
+  //   Object.keys(rooms).forEach(roomName => {
+  //     const room = rooms[roomName];
+  //     console.log(`Room: ${roomName}`);
+  //     console.log(`  Users: ${room.users.length}`);
+  //     console.log(`  Users list: ${room.users.map(u => `${u.name} (${u.id})`).join(', ')}`);
+  //     console.log(`  Host: ${room.host || 'None'}`);
+  //   });
+  //   console.log("=======================\n");
+  // };
   
   // Utility function to broadcast room changes
   const broadcastRoomChange = (roomName) => {
     // Broadcast to all connected clients that rooms have changed
     // Clients should refresh their room lists
     io.emit('roomChanged', { room: roomName });
-    console.log(`Broadcasting room change for ${roomName}`);
   };
 
   // Log room status every 30 seconds
@@ -82,13 +75,7 @@ module.exports = (io, socketRooms = {}) => {
       }
       // Join the socket.io room
       socket.join(room);
-      console.log(`🏠 User ${socket.user.name} (${socket.id}) joined socket room "${room}"`);
-      
-      // Log current room membership
-      const socketsInRoom = io.sockets.adapter.rooms.get(room);
-      const socketCount = socketsInRoom ? socketsInRoom.size : 0;
-      console.log(`📊 Socket room "${room}" now has ${socketCount} connected sockets:`, 
-        socketsInRoom ? Array.from(socketsInRoom) : []);
+      // console.log(` User ${socket.user.name} (${socket.id}) joined socket room "${room}"`);
       
       // Initialize room if it doesn't exist
       if (!rooms[room]) {
@@ -121,18 +108,7 @@ module.exports = (io, socketRooms = {}) => {
       );
       const afterFilter = rooms[room].users.length;
       
-      if (beforeFilter !== afterFilter) {
-        console.log(`🧹 Removed ${beforeFilter - afterFilter} duplicate entries for user ${socket.user.name}`);
-      }
       
-      console.log('🔍 DEBUG: User authentication details:', {
-        socketUser: socket.user,
-        socketUserName: socket.user?.name,
-        socketUserId: socket.user?.id,
-        isAuthenticated: socket.user?.isAuthenticated,
-        providedUserName: userName
-      });
-
       // Prepare user data with correct naming
       let displayName;
       
@@ -140,12 +116,9 @@ module.exports = (io, socketRooms = {}) => {
         // For authenticated users, ALWAYS use the server-side authenticated name
         displayName = socket.user.name;
         console.log(`✅ Using authenticated user name: ${displayName}`);
-      } else {
-        // For non-authenticated users, prioritize the provided userName over the default 'Anonymous User'
-        displayName = userName || 'Anonymous User';
-        console.log(`⚠️ Using provided name for non-authenticated user: ${displayName} (provided: ${userName})`);
-      }
+       }
       
+
       // Add user to room with complete information
       const userInfo = { 
         id: socket.id,                            // socket ID (changes on reconnect)
@@ -158,14 +131,7 @@ module.exports = (io, socketRooms = {}) => {
       
       rooms[room].users.push(userInfo);
       
-      console.log(`✅ Added user to room ${room}:`, {
-        name: displayName,
-        userId: userId,
-        socketId: socket.id,
-        isAuthenticated: socket.user.isAuthenticated
-      });
-      console.log(`📊 Room ${room} now has ${rooms[room].users.length} users:`, 
-        rooms[room].users.map(u => `${u.name} (${u.userId || u.id})`));
+      
       
       // Store room name in socket for disconnect handling
       socket.data.currentRoom = room;
@@ -177,7 +143,6 @@ module.exports = (io, socketRooms = {}) => {
         if (asHost) {
           // If user explicitly requested to join as host
           hostId = userId;
-          console.log(`User ${displayName} (${userId}) joining as explicit host of room ${room}`);
           // Store host in the room's memory state too
           rooms[room].host = userId;
         } else if (dbRoom?.host) {
@@ -206,8 +171,8 @@ module.exports = (io, socketRooms = {}) => {
         console.error('Error saving room:', err);
       }
       // Debug: log the user list
-      console.log(`Room '${room}' users:`, rooms[room].users);
-      
+      // console.log(`Room '${room}' users:`, rooms[room].users);
+
       // Update the room list for this room
       if (rooms[room] && rooms[room].users) {
         // Get the room host information from the database
@@ -225,24 +190,24 @@ module.exports = (io, socketRooms = {}) => {
       }
       
       // Broadcast updated user list to all clients in the room
-      console.log(`📢 Broadcasting user list to all clients in room "${room}":`, rooms[room].users.map(u => u.name));
+     // console.log(`📢 Broadcasting user list to all clients in room "${room}":`, rooms[room].users.map(u => u.name));
       io.to(room).emit('roomUsers', rooms[room].users);
       // Also send the user list directly to the joining socket
       socket.emit('roomUsers', rooms[room].users);
       
       // Send current timer state to the joining user
-      console.log(`📤 Sending current timer state to ${socket.user.name}:`, rooms[room].timer);
+     // console.log(`📤 Sending current timer state to ${socket.user.name}:`, rooms[room].timer);
       socket.emit('timer:update', rooms[room].timer);
       
       // Broadcast room change to all clients so they can refresh room lists
       broadcastRoomChange(room);
       
       // Log room status after join
-      logRoomStatus();
+      // logRoomStatus();
       // Fetch and send message history
       try {
         const messages = await getRoomMessages(room);
-        console.log(`Sending ${messages.length} chat messages to user ${socket.user.name} in room ${room}`);
+       // console.log(`Sending ${messages.length} chat messages to user ${socket.user.name} in room ${room}`);
         socket.emit('chat:history', messages);
       } catch (err) {
         console.error('Error fetching messages:', err);
@@ -251,17 +216,21 @@ module.exports = (io, socketRooms = {}) => {
 
     // Leave room
     socket.on('leaveRoom', async ({ room }) => {
-      console.log(`User ${socket.user?.name} (${socket.id}) leaving room ${room}`);
-      
+      // console.log(`User ${socket.user?.name} (${socket.id}) leaving room ${room}`);
+
       // Leave the socket.io room
       socket.leave(room);
       
       // Get the user's ID for authenticated users
       const userId = socket.user?.id || socket.id;
       const userName = socket.user?.name || 'Anonymous';
-      
-      console.log(`Removing user ${userName} (${userId}) from room ${room}`);
-      
+
+      // console.log(`Removing user ${userName} (${userId}) from room ${room}`);
+
+      // If the room doesn't exist in memory, just return
+      if (!rooms[room]) return;
+
+
       // Clean up user data from the room
       if (rooms[room]) {
         // Remove the user from the room's user list (check all possible identifiers)
@@ -273,18 +242,18 @@ module.exports = (io, socketRooms = {}) => {
         );
         const afterCount = rooms[room].users.length;
         
-        console.log(`Room ${room}: User count changed from ${beforeCount} to ${afterCount}`);
+       // console.log(`Room ${room}: User count changed from ${beforeCount} to ${afterCount}`);
         
         // Get remaining sockets in the room to verify if anyone is still connected
         const socketsInRoom = io.sockets.adapter.rooms.get(room);
         const activeSocketCount = socketsInRoom ? socketsInRoom.size : 0;
         
-        console.log(`Room ${room}: Socket.IO shows ${activeSocketCount} connected sockets`);
+       // console.log(`Room ${room}: Socket.IO shows ${activeSocketCount} connected sockets`);
         
         // Double-check if the room is actually empty (users array vs actual sockets)
         if (activeSocketCount === 0 || rooms[room].users.length === 0) {
-          console.log(`Room ${room} is empty (users: ${rooms[room].users.length}, sockets: ${activeSocketCount}), cleaning up in-memory state`);
-          
+          // console.log(`Room ${room} is empty (users: ${rooms[room].users.length}, sockets: ${activeSocketCount}), cleaning up in-memory state`);
+
           // Clean up any timers
           if (rooms[room].interval) {
             clearInterval(rooms[room].interval);
@@ -299,10 +268,10 @@ module.exports = (io, socketRooms = {}) => {
           delete rooms[room];
           
           // Log the current rooms state after deletion
-          console.log("Rooms after cleanup:", Object.keys(rooms));
+         // console.log("Rooms after cleanup:", Object.keys(rooms));
         } else {
           // Room still has users, update the list for remaining users
-          console.log(`📢 Broadcasting updated user list after leave to room "${room}":`, rooms[room].users.map(u => u.name));
+         // console.log(`📢 Broadcasting updated user list after leave to room "${room}":`, rooms[room].users.map(u => u.name));
           io.to(room).emit('roomUsers', rooms[room].users);
           
           // Broadcast room change to all clients so they can refresh room lists
@@ -325,10 +294,6 @@ module.exports = (io, socketRooms = {}) => {
                 actualSocketIds.includes(user.socketId)
               );
               const afterFilter = rooms[room].users.length;
-              
-              if (beforeFilter !== afterFilter) {
-                console.log(`Room ${room}: Filtered out ${beforeFilter - afterFilter} users who are not actually connected`);
-              }
             }
             
             // Whether room exists in memory or not, update the database with latest user list
@@ -342,7 +307,7 @@ module.exports = (io, socketRooms = {}) => {
               lastActive: new Date()
             });
             
-            console.log(`Updated room ${room} in database. Active users: ${updatedUsers.length}`);
+           // console.log(`Updated room ${room} in database. Active users: ${updatedUsers.length}`);
           }
         } catch (err) {
           console.error(`Error updating room ${room} after user left:`, err);
@@ -358,7 +323,7 @@ module.exports = (io, socketRooms = {}) => {
       broadcastRoomChange(room);
       
       // Log room status after leave
-      logRoomStatus();
+     // logRoomStatus();
     });
 
     // Handle setting a user as host
@@ -384,12 +349,12 @@ module.exports = (io, socketRooms = {}) => {
       if (!room) return;
       
       try {
-        console.log(`[Server] Chat history requested by ${socket.user.name} for room ${room}`);
+      //  console.log(`[Server] Chat history requested by ${socket.user.name} for room ${room}`);
         const messages = await getRoomMessages(room);
-        console.log(`[Server] Sending ${messages.length} messages of chat history to ${socket.user.name}`);
+        //console.log(`[Server] Sending ${messages.length} messages of chat history to ${socket.user.name}`);
         socket.emit('chat:history', messages);
       } catch (err) {
-        console.error(`Error fetching chat history for room ${room}:`, err);
+       // console.error(`Error fetching chat history for room ${room}:`, err);
         socket.emit('chat:history', []);
       }
     });
@@ -408,7 +373,7 @@ module.exports = (io, socketRooms = {}) => {
         roomName: room
       });
       
-      console.log(`Room ${room} deleted by ${hostName} (${socket.user?.id || socket.id})`);
+     // console.log(`Room ${room} deleted by ${hostName} (${socket.user?.id || socket.id})`);
       
       // Clean up the room data
       if (rooms[room]) {
@@ -420,7 +385,7 @@ module.exports = (io, socketRooms = {}) => {
         // This ensures all clients trigger message deletion
         const Message = require('../models/Message');
         await Message.deleteMany({ room: room });
-        console.log(`Messages for room ${room} have been deleted`);
+       // console.log(`Messages for room ${room} have been deleted`);
       } catch (err) {
         console.error(`Error deleting messages for room ${room}:`, err);
       }
@@ -430,8 +395,7 @@ module.exports = (io, socketRooms = {}) => {
     socket.on('requestUserList', ({ room }) => {
       if (!room) return;
       
-      console.log(`📋 User ${socket.user.name} requested user list for room ${room}`);
-      console.log(`📊 Room ${room} current users:`, rooms[room]?.users?.map(u => u.name) || 'No users');
+
       
       if (rooms[room] && rooms[room].users) {
         console.log(`📤 Sending user list to ${socket.user.name}:`, rooms[room].users);
@@ -442,6 +406,8 @@ module.exports = (io, socketRooms = {}) => {
       }
     });
     
+
+
     // Disconnect
     socket.on('disconnect', async () => {
       console.log(`User disconnected: ${socket.id} (${socket.user?.name})`);
@@ -454,7 +420,7 @@ module.exports = (io, socketRooms = {}) => {
       const userRooms = [...socket.rooms].filter(r => r !== socket.id);
       const currentRoom = socket.data.currentRoom;
       
-      console.log(`User ${userName} (${userId}) was in room: ${currentRoom || 'none'}`);
+     // console.log(`User ${userName} (${userId}) was in room: ${currentRoom || 'none'}`);
       
       // Update user lists in all rooms
       for (const roomName in rooms) {
@@ -476,10 +442,7 @@ module.exports = (io, socketRooms = {}) => {
             (socket.user?.isAuthenticated ? u.userId !== userId : true)
           );
           const afterCount = rooms[roomName].users.length;
-          
-          console.log(`👋 Room ${roomName}: User count changed from ${beforeCount} to ${afterCount}`);
-          console.log(`📤 Broadcasting updated user list after disconnect:`, rooms[roomName].users.map(u => u.name));
-          
+
           // Check if there are any actual sockets still in the room
           const socketsInRoom = io.sockets.adapter.rooms.get(roomName);
           const actualSocketCount = socketsInRoom ? socketsInRoom.size : 0;
@@ -560,6 +523,7 @@ module.exports = (io, socketRooms = {}) => {
       logRoomStatus();
     });
 
+    
     // Timer events
     socket.on("timer:start", ({ room, timer }) => {
       console.log(`[Server] timer:start received for room ${room}`, timer);
@@ -693,199 +657,114 @@ module.exports = (io, socketRooms = {}) => {
     
     // Handle "End Session" event from host
     socket.on('endSession', async ({ room }) => {
-      console.log(`\n🚨 ==================== END SESSION REQUEST ====================`);
-      console.log(`[Server] endSession received for room ${room}`);
-      console.log(`🔍 Request from socket: ${socket.id}`);
-      console.log(`🔍 Request from user: ${socket.user?.name} (${socket.user?.id})`);
-      console.log(`🔍 Socket user object:`, socket.user);
       
       if (!room) {
-        console.error('❌ No room name provided for endSession');
-        console.log(`🚨 ==================== END SESSION FAILED ====================\n`);
         return;
       }
       
       try {
         // Check if user is the host of the room (from DB)
-        console.log(`\n🔍 STEP 1: Looking up room ${room} in database...`);
         const dbRoom = await getRoom(room);
         const userId = socket.user.id || socket.user._id || socket.user.email;
         
-        console.log(`🔍 STEP 2: Database room lookup result:`, {
-          roomExists: !!dbRoom,
-          roomHost: dbRoom?.host,
-          requestingUserId: userId,
-          roomData: dbRoom ? {
-            name: dbRoom.name,
-            host: dbRoom.host,
-            users: dbRoom.users,
-            isPublic: dbRoom.isPublic,
-            createdAt: dbRoom.createdAt
-          } : null
-        });
+        
         
         if (!dbRoom) {
           console.warn(`⚠️ STEP 2 FAILED: Room ${room} not found in database - it may have already been deleted`);
           // Still broadcast room change in case it exists in memory
           broadcastRoomChange(room);
-          console.log(`🚨 ==================== END SESSION ABORTED ====================\n`);
           return;
         }
         
         // Make sure this request is coming from the room host
         const isHost = dbRoom.host === userId;
-        console.log(`\n🔍 STEP 3: Host verification:`, {
-          dbRoomHost: dbRoom.host,
-          dbRoomHostType: typeof dbRoom.host,
-          requestingUserId: userId,
-          requestingUserIdType: typeof userId,
-          isHost: isHost,
-          exactMatch: dbRoom.host === userId,
-          looseMatch: String(dbRoom.host) === String(userId)
-        });
+        
         
         if (!isHost) {
-          console.log(`❌ STEP 3 FAILED: User ${userId} attempted to end session for room ${room} but is not the host (actual host: ${dbRoom.host})`);
-          console.log(`❌ Host verification failed - sending error to client`);
           socket.emit('error', { message: 'Only the room host can end the session' });
-          console.log(`🚨 ==================== END SESSION DENIED ====================\n`);
           return;
         }
         
-        console.log(`\n✅ STEP 3 PASSED: User ${userId} is verified host of room ${room} - proceeding with deletion`);
-        console.log(`🔍 STEP 4: Starting session termination process...`);
         
         // Get host name for better notification
         const hostName = socket.user?.name || "The host";
         
         // Notify all users in the room that the session has ended with host information
-        console.log(`📢 STEP 4A: Notifying all users in room ${room}...`);
         io.to(room).emit('roomClosed', { 
           reason: `${hostName} has ended this study session`,
           hostId: userId,
           roomName: room
         });
         
-        console.log(`📢 STEP 4A COMPLETED: Notified all users in room ${room} that session ended`);
-        
         // Clean up the in-memory room data
-        console.log(`🧹 STEP 4B: Cleaning up in-memory data for room ${room}...`);
         if (rooms[room]) {
-          console.log(`🧹 Room ${room} found in memory - cleaning up...`);
           // Clear any running timers
           if (rooms[room].interval) {
             clearInterval(rooms[room].interval);
-            console.log(`⏰ Cleared timer for room ${room}`);
           }
           // Clear user list
           const userCount = rooms[room].users ? rooms[room].users.length : 0;
           rooms[room].users = [];
           // Remove from memory
           delete rooms[room];
-          console.log(`✅ STEP 4B COMPLETED: Removed room ${room} from memory (had ${userCount} users)`);
-        } else {
-          console.log(`ℹ️ STEP 4B SKIPPED: Room ${room} was not found in memory`);
+        } 
+        else {
         }
         
-        // Remove the room from the database (using deleteOne for complete removal)
-        console.log(`\n🗄️ STEP 5: Database deletion process starting...`);
-        console.log(`🗄️ STEP 5A: Attempting to delete room ${room} from database...`);
-        
-        const deleteResult = await Room.deleteOne({ name: room });
-        console.log(`🗄️ STEP 5A RESULT: Room deletion result:`, {
-          acknowledged: deleteResult.acknowledged,
-          deletedCount: deleteResult.deletedCount,
-          matchedCount: deleteResult.matchedCount || 'N/A'
-        });
-        
-        if (deleteResult.deletedCount === 0) {
-          console.warn(`⚠️ STEP 5A WARNING: Room ${room} was not found in database for deletion - it may have already been deleted`);
-          console.warn(`⚠️ This could indicate a race condition or the room was deleted by another process`);
-        } else {
-          console.log(`✅ STEP 5A SUCCESS: Room ${room} successfully deleted from database`);
-        }
-        
-        // Also delete all messages associated with this room
-        const Message = require('../models/Message');
-        console.log(`🗄️ STEP 5B: Deleting messages for room ${room}...`);
-        const messageDeleteResult = await Message.deleteMany({ room: room });
-        console.log(`🗄️ STEP 5B RESULT: Message deletion result:`, {
-          acknowledged: messageDeleteResult.acknowledged,
-          deletedCount: messageDeleteResult.deletedCount
-        });
-        console.log(`✅ STEP 5B COMPLETED: Deleted ${messageDeleteResult.deletedCount} messages for room ${room}`);
-        
-        console.log(`\n🎉 STEP 6: Room ${room} and its messages successfully ended and deleted`);
-        
-        // Final verification - check if room was actually deleted
-        console.log(`🔍 STEP 7: Final verification - checking if room was actually deleted...`);
-        setTimeout(async () => {
-          try {
-            const verifyRoom = await getRoom(room);
-            if (verifyRoom) {
-              console.error(`🚨 STEP 7 CRITICAL ERROR: Room ${room} still exists in database after deletion attempt!`);
-              console.error(`🚨 Room data found:`, verifyRoom);
-              console.error(`🚨 This indicates a serious database issue - attempting second deletion...`);
-              // Try deleting again
-              const secondDeleteAttempt = await Room.deleteOne({ name: room });
-              console.log(`🔄 Second deletion attempt result:`, secondDeleteAttempt);
-              if (secondDeleteAttempt.deletedCount > 0) {
-                console.log(`✅ Second deletion attempt successful`);
-              } else {
-                console.error(`❌ Second deletion attempt also failed - database may have constraints or errors`);
-              }
-            } else {
-              console.log(`✅ STEP 7 SUCCESS: VERIFIED that room ${room} was successfully deleted from database`);
-            }
-          } catch (verifyErr) {
-            console.error(`❌ STEP 7 ERROR: Error verifying room deletion:`, verifyErr);
-          }
-        }, 500); // Check after 500ms
-        
-        // Give clients a moment to receive the notification before disconnecting
-        console.log(`\n🔌 STEP 8: Socket cleanup and broadcasting...`);
-        setTimeout(() => {
-          // Force disconnect all sockets in the room
-          const socketsInRoom = io.sockets.adapter.rooms.get(room);
-          if (socketsInRoom) {
-            console.log(`🔌 STEP 8A: Disconnecting ${socketsInRoom.size} sockets from room ${room}`);
-            let disconnectedCount = 0;
-            for (const socketId of socketsInRoom) {
-              const socketToDisconnect = io.sockets.sockets.get(socketId);
-              if (socketToDisconnect) {
-                socketToDisconnect.leave(room);
-                disconnectedCount++;
-              }
-            }
-            console.log(`✅ STEP 8A COMPLETED: Successfully disconnected ${disconnectedCount} sockets from room ${room}`);
-          } else {
-            console.log(`ℹ️ STEP 8A SKIPPED: No sockets found in room ${room} to disconnect`);
-          }
-          
-          // Broadcast room change to all clients after cleanup
-          console.log(`📢 STEP 8B: Broadcasting room change for deleted room: ${room}`);
-          broadcastRoomChange(room);
-          console.log(`✅ STEP 8B COMPLETED: Room change broadcasted`);
-          
-          console.log(`🎉 ==================== END SESSION COMPLETED ====================\n`);
-        }, 1000); // 1 second delay to ensure notifications are received
-        
-      } catch (err) {
-        console.error(`\n❌ ==================== END SESSION ERROR ====================`);
-        console.error(`❌ Error ending session for room ${room}:`, err.message);
-        console.error(`❌ Error stack:`, err.stack);
-        console.error(`❌ This error occurred during the endSession process`);
-        
-        // Still try to broadcast room change in case of partial failure
-        console.log(`🔄 Attempting to broadcast room change despite error...`);
-        try {
-          broadcastRoomChange(room);
-          console.log(`✅ Emergency room change broadcast completed`);
-        } catch (broadcastErr) {
-          console.error(`❌ Even emergency broadcast failed:`, broadcastErr);
-        }
-        console.error(`❌ ==================== END SESSION ERROR ====================\n`);
+       // Also delete all messages associated with this room
+const Message = require('../models/Message');
+
+const messageDeleteResult = await Message.deleteMany({ room: room });
+
+// Final verification - check if room was actually deleted
+setTimeout(async () => {
+  try {
+    const verifyRoom = await getRoom(room);
+    if (verifyRoom) {
+      console.error(`🚨 Room ${room} still exists after deletion! Attempting second deletion...`);
+      const secondDeleteAttempt = await Room.deleteOne({ name: room });
+      if (secondDeleteAttempt.deletedCount > 0) {
+        console.log(`✅ Second deletion attempt successful`);
+      } else {
+        console.error(`❌ Second deletion attempt failed`);
       }
+    }
+  } catch (verifyErr) {
+    console.error(`❌ Error verifying room deletion:`, verifyErr);
+  }
+}, 500); // Check after 500ms
+
+// Give clients a moment to receive the notification before disconnecting
+setTimeout(() => {
+  // Force disconnect all sockets in the room
+  const socketsInRoom = io.sockets.adapter.rooms.get(room);
+  if (socketsInRoom) {
+    let disconnectedCount = 0;
+    for (const socketId of socketsInRoom) {
+      const socketToDisconnect = io.sockets.sockets.get(socketId);
+      if (socketToDisconnect) {
+        socketToDisconnect.leave(room);
+        disconnectedCount++;
+      }
+    }
+  }
+
+  // Broadcast room change to all clients after cleanup
+  broadcastRoomChange(room);
+}, 1000); // 1 second delay to ensure notifications are received
+
+// Error handling
+} catch (err) {
+  console.error(`❌ Error ending session for room ${room}:`, err.message);
+  try {
+    broadcastRoomChange(room);
+  } catch (broadcastErr) {
+    console.error(`❌ Emergency broadcast failed:`, broadcastErr);
+  }
+}
+
+        
+       
     });
   });
 };
