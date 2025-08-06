@@ -45,7 +45,7 @@ export default function Signup() {
       
       // Show success message and redirect to login
       showSuccess("Account created successfully! Please login.");
-      navigate("/dashboard");
+      navigate("/study-room");
 
     } catch (err) {
       console.error("Signup error:", err);
